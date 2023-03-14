@@ -1,0 +1,409 @@
+---
+title: "Project 2"
+author: "Adam Gruber"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+library(ISLR)
+library(dplyr)
+library(ggthemes)
+library(knitr)
+library(ggplot2)
+library(caret)
+library(InformationValue)
+library(pseudo)
+library(sjPlot)
+library(DescTools)
+OJ_data <- OJ
+
+summary(OJ)
+plot(OJ$Purchase,OJ$PriceCH)
+
+sum(is.na(OJ))
+
+OJ_data$StoreID <- factor(OJ_data$StoreID)
+
+OJ_data$SpecialCH <- factor(OJ_data$SpecialCH)
+OJ_data$SpecialMM <- factor(OJ_data$SpecialMM)
+```
+                                          Introduction
+                                          
+Our company, Grab and Go convenience wants to build a better model for customers purchasing Minute Maid orange juice. Accurately predicting the customers purchases can benefit our company in several ways. Orange juice is a dated product and accurately modeling the sales can prevent excess product from expiring. Accurately modeling purchasing for all our stores can allow us to increase  volume purchases, buy in bulk and receive volume discounts from vendors. Accurately modeling the Minute Maid purchases by store can also allow us to partition whole sale purchases from vendors and accurately send product to each store without the need to move inventory from store to store. 
+
+Missed sales of Minute Maid can have several long term effects. It can reduce customer loyalty to Minute Maid brand or Grab and Go stores as customers try other products. Missed sales can interrupt the usual flow of purchases, and make future ongoing modeling more difficult. Some weeks we have many sales, and other we have few to none, making our models unable to accurately predict.  
+
+In order to build our model, we first explored the data looking for any patterns, and the key variables. Once they were identified, we built 5 models: A,B,C,D,E.  We built the models using logistic regression. We partitioned the data and tested the models, looking to see which ones were most accurate for predicting Minute Maid purchases, Citrus Hill, and then overall.  We then used several tests to find which model fit the best. Model A was chosen. We then looked at the odds ratios for each variable to determine which ones are the strongest factors with the most influence. This can help the marketing team determine who are the customers for Minute Maid, and how to target them properly. 
+                                    
+                                    
+                                     Exploratory Data Analysis
+
+Our OJ data set should prove very valuable to our model for predicting customer purchases. The data set is a complete data set with no missing values. 
+
+There are several variables that will be used in our model to predict. Some are used to measure numerical data like Price, and others are categorical. They are based on selecting certain categories such as "Yes", "NO", or "Store ID". Each of these will factor into the model in different ways. All of the variables related to price are numerical except "SpecialCH" and "SpecialMM". Both categorical and yes/no variables. Several variables skew to the left with long tails. One of these is loyalty to Citrus Hill. This is seen in many other ways throughout the data causes a skew to the left, such as Price Difference vs Purchases.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=TRUE}
+ggplot(data = OJ_data, aes(x = LoyalCH, fill = Purchase))+
+  geom_histogram(position = "dodge")+
+  xlab("Loyalty to Citrus Hill")+
+  theme_economist()+
+  ggtitle("Purchases based on Loyalty to Citrus Hill Brand")
+```
+
+
+There are several redundant variables that are unneeded for our study. They are redundant because they are captured in other variables already. Too many variables can lead to the model over fitting and needing a larger sample size to make more accurate predictions. Columns I removed were "Store 7", "Store", "SPecialCH", and "SpecialMM"  The "Store", and "Store 7" variables are already captured in the "Store Id". The "SpecialCH" and "SpecialMM" are captured by the "DiscCH" and "DiscMM". 
+
+Our Customers have a strong preference for Citrus Hill brand vs Minuted Maid. This is measured with brand loyalty. This can also be seen in several different ways. 38.97% of all purchases in the sample were for Minute Maid. 
+
+
+```{r echo=FALSE}
+kable(OJ %>% 
+  group_by(Purchase) %>%
+  summarise(Quantity = length(Purchase)))
+```
+```{r echo=FALSE, warning=FALSE, paged.print=TRUE}
+ggplot(data = OJ_data, aes(x = WeekofPurchase, fill = Purchase))+
+  geom_histogram(position = 'dodge')+
+  ggtitle("Purchase of OJ each Week")+
+  xlab("Week Of Purchase")+
+  theme_economist()
+
+
+
+```
+
+
+When comparing Price Averages, Minute Maid has a higher average price. It also had a average higher discount. This helped compensate for a larger initial price. The Sale Price after discount was still higher for Minute Maid on Average compared to Citrus Hill. This makes sense with the average Average Price Difference (Minute Maid - Citrus Hill).  There are times where Minute Maid has a lower Sale Price compared to Citrus Hill. 
+
+```{r echo=FALSE, paged.print=FALSE}
+Price_Average <- data.frame( "Price CH"=c(1.867),"Price MM" = c(2.085), "Sale Price MM" = c(1.962), "Sale Price CH" = c(1.816), "Price Difference" = c(.1465))
+
+kable(Price_Average, caption = "Price Averages")
+```
+
+
+There are several outliers in Discount for Minute Maid Discounts. This translates to outliers in Sale Price of Minute and then Outliers in Price Difference. This should not be a concern in our model. Minute Maid was on discount for 16.2% of the sample observations. Citrus Hill was on discount for 14.8% of observations. 
+
+Our box plot shows customers choose Minute Maid when the average price difference is lower, meaning Minute Maid costs the same or less. This is because our customers either prefer or Citrus Hill as their drink of choice or prefer it lower price on average. The Outliers on the Box Plot come from customers that are still purchasing Citrus Hill despite it being more expensive than Minute Maid. 
+
+
+```{r echo=FALSE, warning=FALSE}
+#summary(OJ_data)
+
+#quant_OJ <- select(OJ_data,PriceCH,PriceMM,DiscMM, DiscCH,SalePriceMM,SalePriceCH,PriceDiff)
+
+#summary(quant_OJ)
+
+ggplot(data = OJ_data, aes (x = PriceDiff, y = Purchase))+
+  geom_boxplot()+
+  ggtitle("Purchases based on Price Difference")+
+  xlab("Price Differnce in Dollars, (MM - CH)")+
+  theme_economist()
+  
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(OJ_data, aes (x = PriceDiff, color = Purchase, fill = Purchase))+
+  geom_histogram( position = "dodge")+
+  ggtitle("Purchase based on Price Difference
+Minute Maid (MM) vs Citrus Hill (CH)")+
+  xlab("Price Difference in Dollars")+
+  ylab("Count of Purchases")+
+  theme_economist()
+
+```
+
+
+```{r}
+
+```
+
+
+```{r include=FALSE}
+train.index = createDataPartition(OJ_data$Purchase, p = 0.60, list = FALSE, times = 1) # don't change
+OJ_data$Purchase <- ifelse(OJ_data$Purchase == "MM", 1,0)
+train_OJ <- OJ_data[train.index, ]
+test_OJ <- OJ_data[-train.index, ]
+
+#train_OJ$Purchase <- relevel(train_OJ$Purchase, ref = "1")
+```
+
+                                            Part 2 Purchasing Model
+In order to build our model and test it we partitioned our data into two different sets. The 60% of the data was used as training data to build the model. 40% was used as testing data to see how accurate the model was. In order to build the most accurate model, 3 different models were created using different variables. This was done to find out how much each variable affects the accuracy and which ones may cause over fitting. Too many variables can cause the model to mispredict because it looks at too many different factors when trying to predict the purchases. 
+
+Model A used Week, store id, Price of Citrus Hill and Minute Maid, Discount of Citrus Hill and Minute Maid, Loyalty to Citrus Hill, Sale Price for both, and Price Difference. 
+
+Model B used all those variables less store id.
+
+Model C use all variables from model B less week. 
+
+Some data sets that have numeric variables that have wide range such as 10,000 for one variable and 5 for another may require he data to be standardized or normalized. This data set was had a very small range of numeric values from -1 to 2.50. Our model has a high accuracy as is, without needing to be transformed. In order to minimize errors, when building the model an opitmal cutoff was generated to reduce missclassification. 
+```{r include=FALSE}
+
+# fit the logistic regression model
+Oj_model <- glm(Purchase ~WeekofPurchase+ StoreID+ PriceCH + PriceMM + DiscCH + DiscMM + LoyalCH + SalePriceMM +
+                 SalePriceCH + PriceDiff, 
+             data=train_OJ, family="binomial")
+
+# compute predicted probabilities
+pred_oj <- predict(Oj_model,newdata=train_OJ,type="response")
+
+# find the optimal cutoff (in the package InformationValue)
+opt_cut <- optimalCutoff(actuals=train_OJ$Purchase,
+              predictedScores=pred_oj, 
+              optimiseFor="misclasserror", returnDiagnostics=TRUE)
+
+# print output to screen
+opt_cut$optimalCutoff
+''
+Oj_model
+```
+
+```{r include=FALSE}
+# get predicted classifications using optimal cutoff
+pred_class_opt <- ifelse(pred_oj > opt_cut$optimalCutoff, 1, 0)
+
+# make new confusion matrix using optimal cutoff
+cmat_opt_less_week <- caret::confusionMatrix(as.factor(pred_class_opt),
+                          as.factor(train_OJ$Purchase),
+                          positive="1")
+
+
+#cmat_opt
+#cmat_opt_less_store
+cmat_opt_less_week
+
+```
+All 3 models had the same base level of Prevalence since that is base levels odds of picking Minute Maid. In our total data set, Minute Maid was 38.97% of purchases. In our models, prevalence was 39.04%, which was based on the number of Minute maid purchases in the training data. 
+
+Sensitivity refers to how likely our model is to predict the customer purchases Minuted Maid. Specificity refers to how likely the model is predicts the purchase of Citrus Hill which is the expected and most common value. Overall when looking at our Training data it appears Model A is most accurate. Often times, having too many variables will cause over fitting but here using the variables adds to the accuracy.  
+
+```{r echo=FALSE, paged.print=FALSE}
+Training_MInute_Maid_accuracy <- data.frame( "Training Data"=c("Model A", "Model B", "Model C"),"Accuracy" = c(0.8647,0.8538,0.8523), "Sensitivity" = c(0.8247,0.7809,0.7888), "Specificity" = c(0.8903,0.9005,0.8929))
+
+kable(Training_MInute_Maid_accuracy, caption = "Minute Maid Training Data")
+```
+
+
+IN order to find the accuracy of our model, we need to test it using the test data that was partitioned. When testing we looked at all 3 models based on their changing variables. All models had a decreased level of accuracy as seen and that is expected when testing our data set. There is only a slight drop in accuracy. Accuracy when looking at our training Model A compared to testing for Model A shows only a slight drop. Accuracy dropped from .8647 to .8244. This is a sign our model is not over fitting. This refers to over calculating errors. 
+
+When building a model, the goal is always to minimize error, without over classifying or under classifying. This is why several variables were removed from the initial data sample. Those extraneous variables would cause issues with main variables, such ones that had a one to one relationship with over variables such as store and store id. Some variables were unneeded when building the overall model for determining purchases of Minute Maid at all our stores, such as Store7 variable. 
+
+Sensitivity, predicting for Minute Maid purchases, dropped to .7651 from .8247 Specificity, predicting Citrus Hill purchases, dropped to .8621 from .8903 in Model A. This means we can predict for 76.51% accuracy the purchase of Minute Maid compared to the no information rate of 61.12%. The no information rate refers to random chance. 
+
+```{r echo=FALSE, paged.print=FALSE}
+Testing_MInute_Maid_accuracy <- data.frame( "Testing Data"=c("Model A", "Model B", "Model C", "Model D", "Model E"),"Accuracy" = c(0.8173,0.8197,0.815,0.6557,0.8197), "Sensitivity" = c(0.7892,0.8012,0.7470,0.4337,0.8012), "Specificity" = c(0.8352,0.8314,0.7582, 0.7969, 0.8314))
+
+kable(Testing_MInute_Maid_accuracy, caption = "Minute Maid Testing Data")
+```
+
+
+```{r include=FALSE}
+#building the test model
+# fit the logistic regression model
+Oj_model_test <- glm(Purchase ~WeekofPurchase + PriceCH + PriceMM + DiscCH + DiscMM + LoyalCH + SalePriceMM +SalePriceCH + PriceDiff, 
+             data=test_OJ, family="binomial")
+
+Oj_model_A <- glm(Purchase ~WeekofPurchase+ StoreID+ PriceCH + PriceMM + DiscCH + DiscMM + LoyalCH + SalePriceMM +
+                 SalePriceCH + PriceDiff, 
+             data=test_OJ, family="binomial")
+
+Oj_model_B <- glm(Purchase ~ StoreID+ PriceCH + PriceMM + DiscCH + DiscMM + LoyalCH + SalePriceMM +
+                 SalePriceCH + PriceDiff, 
+             data=test_OJ, family="binomial")
+
+
+oj_model_C <- glm(Purchase ~ PriceCH + PriceMM + PriceDiff + SalePriceMM + SalePriceCH, 
+             data=test_OJ, family="binomial")
+
+oj_model_d <- glm(Purchase ~ PriceDiff, 
+             data=test_OJ, family="binomial")
+oj_model_e <- glm(Purchase ~ StoreID+ PriceCH + PriceMM + DiscCH + DiscMM + LoyalCH, 
+             data=test_OJ, family="binomial")
+
+
+
+# compute predicted probabilities
+pred_oj_test_A <- predict(Oj_model_A,newdata=test_OJ,type="response")
+
+pred_oj_test_B <- predict(Oj_model_B,newdata=test_OJ,type="response")
+
+#pred_oj_test_C <- predict(Oj_model_C,newdata=test_OJ,type="response")
+
+pred_oj_test_D <- predict(oj_model_d,newdata=test_OJ,type="response")
+
+pred_oj_test_E <- predict(oj_model_e,newdata=test_OJ,type="response")
+
+# find the optimal cutoff (in the package InformationValue)
+opt_cut_test <- optimalCutoff(actuals=test_OJ$Purchase,
+              predictedScores=pred_oj_test_A, 
+              optimiseFor="misclasserror", returnDiagnostics=TRUE)
+
+# print output to screen
+#opt_cut_test$optimalCutoff
+
+# get predicted classifications using optimal cutoff
+pred_class_opt_test_A <- ifelse(pred_oj_test_A > opt_cut$optimalCutoff, 1, 0)
+
+pred_class_opt_test_B <- ifelse(pred_oj_test_B > opt_cut$optimalCutoff, 1, 0)
+
+#pred_class_opt_test_C <- ifelse(pred_oj_test_C > opt_cut$optimalCutoff, 1, 0)
+
+pred_class_opt_test_D <- ifelse(pred_oj_test_D > opt_cut$optimalCutoff, 1, 0)
+
+pred_class_opt_test_E <- ifelse(pred_oj_test_E > opt_cut$optimalCutoff, 1, 0)
+
+# make new confusion matrix using optimal cutoff
+cmat_opt_test_A <- caret::confusionMatrix(as.factor(pred_class_opt_test_A),
+                          as.factor(test_OJ$Purchase),
+                          positive="1")
+
+cmat_opt_test_B <- caret::confusionMatrix(as.factor(pred_class_opt_test_B),
+                          as.factor(test_OJ$Purchase),
+                          positive="1")
+
+#cmat_opt_test_C <- caret::confusionMatrix(as.factor(pred_class_opt_test_C),
+                          #as.factor(test_OJ$Purchase),
+                          #positive="1")
+
+cmat_opt_test_D <- caret::confusionMatrix(as.factor(pred_class_opt_test_D),
+                          as.factor(test_OJ$Purchase),
+                          positive="1")
+
+cmat_opt_test_E <- caret::confusionMatrix(as.factor(pred_class_opt_test_E),
+                          as.factor(test_OJ$Purchase),
+                          positive="1")
+# print some output to screen
+#cmat.opt$overall[1]
+#cmat.opt$byClass[1:2]
+
+#cmat_opt_test
+cmat_opt_test_A
+cmat_opt_test_B
+#cmat_opt_test_C
+cmat_opt_test_D
+cmat_opt_test_E
+#cmat_opt_test_less_week
+
+
+```
+
+
+
+
+
+
+```{r include=FALSE}
+# fit the logistic regression model
+Oj_model_A <- glm(Purchase ~WeekofPurchase+ StoreID+ PriceCH + PriceMM + DiscCH + DiscMM + LoyalCH + SalePriceMM +
+                 SalePriceCH + PriceDiff, 
+             data=OJ_data, family="binomial")
+
+Oj_model_B <- glm(Purchase ~ StoreID+ PriceCH + PriceMM + DiscCH + DiscMM + LoyalCH + SalePriceMM +
+                 SalePriceCH + PriceDiff, 
+             data=OJ_data, family="binomial")
+
+
+oj_model_C <- glm(Purchase ~ PriceCH + PriceMM + PriceDiff, 
+             data=OJ_data, family="binomial")
+
+oj_model_d <- glm(Purchase ~ PriceDiff, 
+             data=OJ_data, family="binomial")
+oj_model_e <- glm(Purchase ~ StoreID+ PriceCH + PriceMM + DiscCH + DiscMM + LoyalCH, 
+             data=OJ_data, family="binomial")
+
+summary(Oj_model_A)
+summary(Oj_model_B)
+summary(oj_model_C)
+summary(oj_model_d)
+summary(oj_model_e)
+
+```
+
+                                        Part 3 Marketing
+In order to find the best fit and best prediction for our model, we created 5 different models based off the key variables. When summarizing model A, I found that several variables returned NA values for intercept. This is a sign, those variables are linearly dependent on other variables.  These variables that are dependent in model A are Sale Price MM, Sale Price CH, and Price Diff.  These values are captured in the price of other variables, Price of Ch, and Price of MM. I removed those variables from  model C,D,E. 
+These are the predictors for each model.
+
+Model A has: WeekofPurchase, StoreID, PriceCH, PriceMM, DiscCH, DiscMM, LoyalCH, SalePriceMM, SalePriceCH, PriceDiff
+Model B has: StoreID, PriceCH, PriceMM, DiscCH, DiscMM, LoyalCH, SalePriceMM, SalePriceCH, PriceDiff
+Model C has: PriceCH, PriceMM, PriceDiff
+Model D has: just PriceDiff
+Model E has: StoreID, PriceCH, PriceMM, DiscCH, DiscMM, LoyalCH
+
+Model E was constructed looking at the best predictors that were most significant according to their P value, and looking at metrics for the best fit using McFadden and AIC test. The extraneous variables were also removed for Model E.  McFadden test looks for the largest value. That is model A and B. AIC test looks for smallest value which is Model B and A. Both are very similar.  
+
+```{r echo=FALSE, paged.print=FALSE}
+model_fit_table <- data.frame( "Predictive Models"=c("Model A", "Model B", "Model C", "Model D", "Model E"),"McFAdden" = c(0.45196, 0.45185, 0.062084, 0.056115, 0.45185), "AIC" = c(493.4278, 491.5268, 814.8099, 815.9444, 491.5268 ))
+
+kable(model_fit_table, caption = "Model Fit Metrics")
+```
+
+
+```{r include=FALSE}
+
+
+PseudoR2(Oj_model_A, which = 'all')
+PseudoR2(Oj_model_B, which = 'all')
+PseudoR2(oj_model_C, which = 'all')
+PseudoR2(oj_model_d, which = 'all')
+PseudoR2(oj_model_e, which = 'all')
+
+```
+Model A is very similar in AIC, and McFadden score to Model B and E. The accuracy, sensitivity, and specificity are still better as seen in our Minute Maid Testing Data table.  
+
+The Summary of Model A shows all the Predictors and their coefficients. It shows the linear variables of SalePrice for MM, CH and Price Diff. Those are explained by other variables and show NA instead.  Several of the predictors have negative values like LoyaltyCH. This means they are negative predictor if a customer will purchase Minute Maid. This customers that are more loyal to CH are less likely to purchases Minute Maid.
+
+A P value less than .05 are considered significant. This means they are strong indicators for whether a customer will purchase Minute Maid or not. The strongest positive factor for predicting purchase of Minute Maid is the Price of Citrus Hill. This can be seen in the following graphs. 
+```{r echo=FALSE}
+summary(Oj_model_A)$coefficients
+```
+The explanatory variables can have the odds for each variable calculated towards purchasing Minute Maid. The graph shows log odds each variable for purchasing Minute Maid. Log transformation was chosen for easy comparison of variables. 
+
+The price of Citrus Hill is the strongest indicator followed by Discount for Minute Maid. This makes sense because as price of Citrus Hill increases, purchases will decrease. Since we assume binary choices, our best predictor for customers purchasing Minute Maid is the price of the competition, Citrus Hill, and if we are running a Discount on Minute Maid. The graph also shows the confidence interval for each explanatory variable. This shows that we are 95% confident the odds ratio falls between 1.06 and 8.29 for PriceCH. The odds of purchasing Minute Maid increase by a factor of 105.17 for each unit increase in Price of Citrus Hill. This also applies the other variables in our model. The odds of purchasing Minute Maid decrease by a factor of .05  for each unit increase in the Discount of Citrus Hill. 
+
+```{r echo=FALSE, warning=FALSE}
+plot_model(Oj_model_A, sort.est = TRUE, transform = NULL, show.values = TRUE, value.offset = .5, title = "Minute Maid Purchase Predictors, Model A", ci.lvl = .95)
+#plot_model(Oj_model_B, sort.est = TRUE)
+plot_model(Oj_model_A, sort.est = TRUE, show.values = TRUE, value.offset = .5, title = " Odds of Minute Maid Purchase , Model A")
+
+```
+
+
+
+```{r echo=FALSE}
+
+(confint(Oj_model_A, parm = c(1,2,3,4,5,6,7,8,9,10,11), level = .95))
+```
+
+Our Linear variables have are shown as having no confidence interval and odds ratio because they are already captured in other variables. 
+
+The odds of purchasing Minute Maid can be graphed using the strongest predictor, the price of Citrus Hill. All stores see an increase in the odds of purchasing minute maid as the price of citrus hill increases. The store 3 has the highest odds and store 7 the lowest odds. This can also be seen in the  Odds of Minute Maid Purchase graph. This shows the store 7 as having a negative odds ratio for purchase of Minute Maid. 
+
+```{r echo=FALSE}
+plot_model(Oj_model_A, type = 'pred',terms = c('PriceCH', 'StoreID'), title = "Odds of MM Purchases increase with Price of CH") 
+```
+
+In order for Grab, and Go convenience to increase the purchase of Minute Maid OJ, we need to increase the price of Citrus Hill OJ, or increase the discounts on Minute Maid OJ to make the prices more comparable for the consumer. The Price of Minute Maid was typically higher in our sample data, but as the price of Citrus Hill increased one unit, the odds of purchasing Minute Maid increased by a factor of 105.17. The odds of purchasing Minute Maid also increased by a factor of 13.09  for each unit increase in Minute Maid discount. Reducing/balancing prices in stores 1,2,3,4 will see biggest increase in sales of Minute Maid. 
+
+Brand Loyalty to Citrus Hill is the largest explanatory variable for decreasing the odds of purchasing Minute Maid. This factor may not be controllable or easily measured. It is possible though our model may need to be re-evaluated if their is negative publicity. For Example in 1991 Citrus Hill Brand had 12,000 gallons of OJ seized by the FDA for false advertising. This kind of negative publicity on tv can erode consumer confidence and cause our model to be inaccurate. 
+
+
+                                    Summary and Recommendations
+
+Our model A was chosen as it was considered the most even model when considering all the tests. Model A had an overall accuracy of 81.73% for all purchases. It predicted Minute Maid purchases accurately at a 78.92% rate. Model A had the largest McFadden test value and second smallest AIC value. Model A had the most significant variables of any model, looking at p value of less than 0.05. It also had the most variables of any model. 
+
+
+Our marketing team should look at the Price of Citrus Hill as the biggest factor determining sales of Minute Maid. The odds of purchasing Minute Maid increase by a factor of 105.17 for each unit increase in Price of Citrus Hill. Our next biggest factor is Discount of Minute Maid. Typically price of Minute Maid was higher than Citrus Hill. As prices became comparable, or even lower for Minute Maid, the odds of purchase increased. Our set by our marketing department are the biggest factors for predicting future sales. 
+
+
+Our model will need to be continuously re-evaluated as the factors might change over time. Loyalty was the biggest factor to reduce the odds of purchase. Brand Loyalty can change over time. Poor in-stock, poor quality products, and changing customer tastes can all affect brand loyalty over time. Prices of fresh products can fluctuate often with seasons and production levels. This may need re-evaluation every couple months. Over time we can build accurate models for various seasons as well, such as summer, spring, flu season, or orange harvest season. They are all external, seasonal factors that can affect the purchases of Minute Maid OJ but can be added into our model to make more accurate predictions. 
+
+
+
+
+
+
+
+
